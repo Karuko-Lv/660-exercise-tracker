@@ -5,6 +5,7 @@
       <div class="header-actions">
         <button @click="exportData('csv')" class="btn">导出CSV</button>
         <button @click="exportData('json')" class="btn">导出JSON</button>
+        <button @click="showClearDataModal = true" class="btn btn-danger">清除数据</button>
       </div>
     </header>
     
@@ -276,6 +277,24 @@
         </div>
       </div>
     </div>
+    
+    <!-- 清除数据模态框 -->
+    <div v-if="showClearDataModal" class="modal">
+      <div class="modal-content">
+        <div class="modal-header">
+          <h3>清除数据</h3>
+          <button @click="showClearDataModal = false" class="close-btn">×</button>
+        </div>
+        <div class="clear-data-content">
+          <p class="warning-text">⚠️ 警告：此操作将清除所有已保存的做题记录、照片和笔记，且无法恢复！</p>
+          <p>确定要清除所有数据吗？</p>
+        </div>
+        <div class="note-actions">
+          <button @click="clearAllData" class="btn btn-danger">确定清除</button>
+          <button @click="showClearDataModal = false" class="btn btn-secondary">取消</button>
+        </div>
+      </div>
+    </div>
   </div>
 </template>
 
@@ -297,9 +316,14 @@ export default {
       showUploadModal: false,
       showPreviewModal: false,
       showNoteModal: false,
+      showClearDataModal: false,
       currentQuestionNumber: null,
       previewImageData: null,
-      currentNote: ''
+      currentNote: '',
+      saveTimeout: null,
+      storageKey: '660Questions',
+      backupKey: '660QuestionsBackup',
+      dataVersion: '1.1'
     }
   },
   computed: {
@@ -377,30 +401,115 @@ export default {
   },
   methods: {
     initializeData() {
-      // 从本地存储加载数据
-      const savedData = localStorage.getItem('660Questions')
-      if (savedData) {
-        this.questions = JSON.parse(savedData)
-        // 确保所有题目都有note字段
-        this.questions.forEach(q => {
-          if (q.note === undefined) {
-            q.note = ''
+      try {
+        // 从本地存储加载数据
+        const savedData = localStorage.getItem(this.storageKey)
+        if (savedData) {
+          try {
+            const parsedData = JSON.parse(savedData)
+            // 数据版本迁移
+            if (parsedData.version === this.dataVersion) {
+              this.questions = parsedData.questions
+            } else {
+              this.questions = this.migrateData(parsedData)
+            }
+            // 确保所有题目都有必要字段
+            this.ensureQuestionFields()
+          } catch (parseError) {
+            console.error('解析数据失败，尝试从备份恢复:', parseError)
+            this.loadFromBackup()
           }
-        })
-      } else {
-        // 初始化660道题目
-        this.questions = Array.from({ length: 660 }, (_, index) => ({
-          number: index + 1,
-          status: '',
-          difficulty: 0,
-          image: null,
-          note: ''
-        }))
-        this.saveData()
+        } else {
+          // 尝试从备份加载
+          this.loadFromBackup()
+        }
+      } catch (error) {
+        console.error('加载数据失败:', error)
+        // 初始化默认数据
+        this.initializeDefaultData()
       }
     },
+    loadFromBackup() {
+      try {
+        const backupData = localStorage.getItem(this.backupKey)
+        if (backupData) {
+          const parsedData = JSON.parse(backupData)
+          this.questions = parsedData.questions
+          this.ensureQuestionFields()
+          console.log('从备份恢复数据成功')
+        } else {
+          this.initializeDefaultData()
+        }
+      } catch (error) {
+        console.error('从备份恢复失败:', error)
+        this.initializeDefaultData()
+      }
+    },
+    initializeDefaultData() {
+      this.questions = Array.from({ length: 660 }, (_, index) => ({
+        number: index + 1,
+        status: '',
+        difficulty: 0,
+        image: null,
+        note: ''
+      }))
+      this.saveData()
+    },
+    ensureQuestionFields() {
+      this.questions.forEach(q => {
+        if (q.note === undefined) q.note = ''
+        if (q.image === undefined) q.image = null
+        if (q.status === undefined) q.status = ''
+        if (q.difficulty === undefined) q.difficulty = 0
+      })
+    },
+    migrateData(oldData) {
+      // 数据版本迁移逻辑
+      const newQuestions = Array.from({ length: 660 }, (_, index) => ({
+        number: index + 1,
+        status: '',
+        difficulty: 0,
+        image: null,
+        note: ''
+      }))
+      if (oldData.questions) {
+        oldData.questions.forEach(oldQ => {
+          const newQ = newQuestions.find(q => q.number === oldQ.number)
+          if (newQ) {
+            Object.assign(newQ, oldQ)
+          }
+        })
+      }
+      return newQuestions
+    },
     saveData() {
-      localStorage.setItem('660Questions', JSON.stringify(this.questions))
+      // 防抖处理，避免频繁写入
+      clearTimeout(this.saveTimeout)
+      this.saveTimeout = setTimeout(() => {
+        try {
+          const data = {
+            version: this.dataVersion,
+            timestamp: Date.now(),
+            questions: this.questions
+          }
+          // 先保存备份
+          localStorage.setItem(this.backupKey, JSON.stringify(data))
+          // 再保存主数据
+          localStorage.setItem(this.storageKey, JSON.stringify(data))
+          console.log('数据保存成功')
+        } catch (error) {
+          console.error('保存数据失败:', error)
+          // 尝试使用sessionStorage作为备选
+          try {
+            sessionStorage.setItem(this.storageKey, JSON.stringify(this.questions))
+            console.log('使用sessionStorage保存数据')
+          } catch (sessionError) {
+            console.error('sessionStorage也保存失败:', sessionError)
+            // 显示用户友好的错误提示
+            alert('数据保存失败，部分功能可能受限')
+          }
+        }
+      }, 300) // 300ms防抖
     },
     setDifficulty(number, difficulty) {
       const question = this.questions.find(q => q.number === number)
@@ -522,6 +631,26 @@ export default {
     renderMarkdown(text) {
       if (!text) return ''
       return md.render(text)
+    },
+    clearAllData() {
+      if (confirm('确定要清除所有数据吗？此操作无法恢复！')) {
+        try {
+          // 清除本地存储数据
+          localStorage.removeItem(this.storageKey)
+          localStorage.removeItem(this.backupKey)
+          sessionStorage.removeItem(this.storageKey)
+          
+          // 初始化默认数据
+          this.initializeDefaultData()
+          this.showClearDataModal = false
+          
+          console.log('数据清除成功')
+          alert('数据已成功清除')
+        } catch (error) {
+          console.error('清除数据失败:', error)
+          alert('清除数据失败，请重试')
+        }
+      }
     }
   }
 }
@@ -567,6 +696,14 @@ export default {
 
 .btn-secondary:hover {
   background-color: #5a6268;
+}
+
+.btn-danger {
+  background-color: #dc3545;
+}
+
+.btn-danger:hover {
+  background-color: #c82333;
 }
 
 .btn-sm {
@@ -1012,6 +1149,17 @@ export default {
   display: flex;
   gap: 10px;
   justify-content: flex-end;
+}
+
+.clear-data-content {
+  margin-bottom: 20px;
+}
+
+.warning-text {
+  color: #dc3545;
+  font-weight: bold;
+  margin-bottom: 15px;
+  line-height: 1.5;
 }
 
 @media (max-width: 768px) {
