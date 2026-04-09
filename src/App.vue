@@ -817,6 +817,10 @@ export default {
           this.questions = this.ensureQuestionFields(userData.data.questions || this.initializeDefaultQuestions())
         }
       }
+      // 确保questions始终被初始化
+      if (!this.questions || this.questions.length === 0) {
+        this.questions = this.initializeDefaultQuestions()
+      }
     },
     saveData() {
       // 防抖处理，避免频繁写入
