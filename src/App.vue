@@ -436,7 +436,7 @@ import { currentUser, isAuthenticated, login, logout, loadUser } from './store/a
 import { register, login as apiLogin } from './services/firebaseAuth'
 import { uploadData, downloadData } from './services/firebaseSync'
 import { syncStatus, lastSyncTime, autoSync, manualSync } from './utils/firebaseSyncManager'
-import { onAuthStateChanged } from './firebase'
+import { auth, onAuthStateChanged } from './firebase'
 
 const md = new MarkdownIt({
   breaks: true,
@@ -590,7 +590,7 @@ export default {
     // 初始化数据
     this.initializeData()
     // 监听Firebase认证状态
-    onAuthStateChanged((user) => {
+    onAuthStateChanged(auth, (user) => {
       if (user) {
         // 用户已登录
         const userData = {
