@@ -118,12 +118,25 @@
           </div>
         </div>
         
-        <div class="analysis-card" v-if="!isAuthenticated">
+        <div class="analysis-card">
           <h3>云端同步</h3>
-          <div class="sync-info">
+          <div class="sync-info" v-if="!isAuthenticated">
             <p style="margin-bottom: 10px; color: #666;">登录后可同步数据到云端，在不同设备间访问</p>
             <button @click="showAuthModal = true" class="btn" style="margin-right: 10px;">登录</button>
             <button @click="showRegisterModal = true" class="btn">注册</button>
+          </div>
+          <div class="sync-info" v-else>
+            <div class="stat-item">
+              <span class="stat-label">同步状态:</span>
+              <span class="stat-value" :class="'sync-' + syncStatus.value">{{ syncStatusText }}</span>
+            </div>
+            <div class="stat-item" v-if="lastSyncTime.value">
+              <span class="stat-label">上次同步:</span>
+              <span class="stat-value">{{ formatSyncTime(lastSyncTime.value) }}</span>
+            </div>
+            <button @click="syncData" class="btn btn-sm" :disabled="syncStatus.value === 'syncing'" style="margin-top: 10px;">
+              立即同步
+            </button>
           </div>
         </div>
         
