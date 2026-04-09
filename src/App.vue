@@ -3,16 +3,29 @@
     <header class="header">
       <div class="user-section">
         <div class="current-user">
-          <select v-model="usersData.currentUser" @change="switchUser" class="user-select">
+          <select v-model="usersData.currentUser" @change="switchUser" class="user-select" v-if="!isAuthenticated">
             <option v-for="(user, id) in users" :key="id" :value="id">
               {{ user.name }}
             </option>
           </select>
-          <button @click="showUserModal = true" class="btn btn-sm">管理用户</button>
+          <div v-else class="auth-user">
+            <span>{{ currentAuthUser?.username }}</span>
+            <button @click="handleLogout" class="btn btn-sm">登出</button>
+          </div>
+          <button @click="showUserModal = true" class="btn btn-sm" v-if="!isAuthenticated">管理用户</button>
         </div>
       </div>
       <h1>26版660习题集记录</h1>
       <div class="header-actions">
+        <div class="sync-status" v-if="isAuthenticated">
+          <span class="sync-label">同步状态:</span>
+          <span class="sync-indicator" :class="syncStatus.value">{{ syncStatusText }}</span>
+          <button @click="syncData" class="btn btn-sm" :disabled="syncStatus.value === 'syncing'">
+            手动同步
+          </button>
+        </div>
+        <button @click="showAuthModal = true" class="btn" v-if="!isAuthenticated">登录</button>
+        <button @click="showRegisterModal = true" class="btn" v-if="!isAuthenticated">注册</button>
         <button @click="exportData('csv')" class="btn">导出CSV</button>
         <button @click="exportData('json')" class="btn">导出JSON</button>
         <button @click="showClearDataModal = true" class="btn btn-danger">清除数据</button>
@@ -350,11 +363,78 @@
         </div>
       </div>
     </div>
+    
+    <!-- 登录模态框 -->
+    <div v-if="showAuthModal" class="modal">
+      <div class="modal-content auth-modal">
+        <div class="modal-header">
+          <h3>登录</h3>
+          <button @click="showAuthModal = false" class="close-btn">×</button>
+        </div>
+        <div class="auth-content">
+          <div v-if="authError" class="error-message">{{ authError }}</div>
+          <div class="form-group">
+            <label>邮箱</label>
+            <input type="email" v-model="authForm.email" required class="auth-input">
+          </div>
+          <div class="form-group">
+            <label>密码</label>
+            <input type="password" v-model="authForm.password" required class="auth-input">
+          </div>
+          <button @click="handleLogin" class="btn" :disabled="authLoading">
+            {{ authLoading ? '登录中...' : '登录' }}
+          </button>
+          <div class="auth-switch">
+            还没有账户？
+            <button @click="showAuthModal = false; showRegisterModal = true" class="link-btn">
+              注册
+            </button>
+          </div>
+        </div>
+      </div>
+    </div>
+    
+    <!-- 注册模态框 -->
+    <div v-if="showRegisterModal" class="modal">
+      <div class="modal-content auth-modal">
+        <div class="modal-header">
+          <h3>注册</h3>
+          <button @click="showRegisterModal = false" class="close-btn">×</button>
+        </div>
+        <div class="auth-content">
+          <div v-if="authError" class="error-message">{{ authError }}</div>
+          <div class="form-group">
+            <label>用户名</label>
+            <input type="text" v-model="authForm.username" required class="auth-input">
+          </div>
+          <div class="form-group">
+            <label>邮箱</label>
+            <input type="email" v-model="authForm.email" required class="auth-input">
+          </div>
+          <div class="form-group">
+            <label>密码</label>
+            <input type="password" v-model="authForm.password" required class="auth-input">
+          </div>
+          <button @click="handleRegister" class="btn" :disabled="authLoading">
+            {{ authLoading ? '注册中...' : '注册' }}
+          </button>
+          <div class="auth-switch">
+            已有账户？
+            <button @click="showRegisterModal = false; showAuthModal = true" class="link-btn">
+              登录
+            </button>
+          </div>
+        </div>
+      </div>
+    </div>
   </div>
 </template>
 
 <script>
 import MarkdownIt from 'markdown-it'
+import { currentUser, token, isAuthenticated, login, logout, loadUser } from './store/auth'
+import { uploadData, downloadData, register, login as apiLogin } from './services/sync'
+import { syncStatus, lastSyncTime, autoSync, manualSync } from './utils/syncManager'
 
 const md = new MarkdownIt({
   breaks: true,
@@ -374,6 +454,8 @@ export default {
       showClearDataModal: false,
       showUserModal: false,
       showEditUserModal: false,
+      showAuthModal: false,
+      showRegisterModal: false,
       currentQuestionNumber: null,
       previewImageData: null,
       currentNote: '',
@@ -388,7 +470,18 @@ export default {
       },
       newUserName: '',
       editingUserId: null,
-      editingUserName: ''
+      editingUserName: '',
+      // 认证相关
+      authForm: {
+        email: '',
+        password: '',
+        username: ''
+      },
+      authError: '',
+      authLoading: false,
+      // 同步相关
+      syncStatus: syncStatus,
+      lastSyncTime: lastSyncTime
     }
   },
   computed: {
@@ -472,10 +565,34 @@ export default {
     },
     currentUserId() {
       return this.usersData.currentUser
+    },
+    // 认证相关计算属性
+    isAuthenticated() {
+      return isAuthenticated.value
+    },
+    currentAuthUser() {
+      return currentUser.value
+    },
+    // 同步相关计算属性
+    syncStatusText() {
+      switch (this.syncStatus.value) {
+        case 'syncing': return '同步中...';
+        case 'success': return '同步成功';
+        case 'error': return '同步失败';
+        default: return '空闲';
+      }
     }
+    
   },
   mounted() {
+    // 加载认证状态
+    loadUser()
+    // 初始化数据
     this.initializeData()
+    // 如果已认证，自动同步数据
+    if (isAuthenticated.value) {
+      this.syncData()
+    }
   },
   methods: {
     initializeData() {
@@ -647,6 +764,10 @@ export default {
       clearTimeout(this.saveTimeout)
       this.saveTimeout = setTimeout(() => {
         this.saveUserData()
+        // 如果已认证，自动同步到云端
+        if (isAuthenticated.value) {
+          autoSync(this.questions)
+        }
       }, 300) // 300ms防抖
     },
     saveUserData() {
@@ -891,7 +1012,63 @@ export default {
       } else {
         alert('请输入用户名')
       }
+    },
+    // 认证相关方法
+    async handleLogin() {
+      this.authLoading = true
+      this.authError = ''
+      try {
+        const response = await apiLogin(this.authForm.email, this.authForm.password)
+        login(response.user, response.token)
+        this.showAuthModal = false
+        this.authForm = { email: '', password: '', username: '' }
+        // 同步数据
+        this.syncData()
+        console.log('登录成功')
+      } catch (error) {
+        this.authError = error
+        console.error('登录失败:', error)
+      } finally {
+        this.authLoading = false
+      }
+    },
+    async handleRegister() {
+      this.authLoading = true
+      this.authError = ''
+      try {
+        const response = await register(this.authForm.username, this.authForm.email, this.authForm.password)
+        login(response.user, response.token)
+        this.showRegisterModal = false
+        this.authForm = { email: '', password: '', username: '' }
+        // 同步数据
+        this.syncData()
+        console.log('注册成功')
+      } catch (error) {
+        this.authError = error
+        console.error('注册失败:', error)
+      } finally {
+        this.authLoading = false
+      }
+    },
+    handleLogout() {
+      logout()
+      console.log('登出成功')
+    },
+    // 同步相关方法
+    async syncData() {
+      try {
+        const data = await manualSync()
+        if (data && data.questions) {
+          this.questions = data.questions
+          this.saveData()
+          console.log('同步成功')
+        }
+      } catch (error) {
+        console.error('同步失败:', error)
+        alert('同步失败，请检查网络连接')
+      }
     }
+    
   }
 }
 </script>
@@ -1002,6 +1179,115 @@ export default {
 
 .edit-user-content {
   margin-bottom: 20px;
+}
+
+/* 认证相关样式 */
+.auth-modal {
+  max-width: 400px;
+}
+
+.auth-content {
+  margin-bottom: 20px;
+}
+
+.form-group {
+  margin-bottom: 15px;
+}
+
+.form-group label {
+  display: block;
+  margin-bottom: 5px;
+  font-weight: 500;
+  color: #333;
+}
+
+.auth-input {
+  width: 100%;
+  padding: 10px;
+  border: 1px solid #ddd;
+  border-radius: 4px;
+  font-size: 14px;
+}
+
+.error-message {
+  background-color: #f8d7da;
+  color: #721c24;
+  padding: 10px;
+  border-radius: 4px;
+  margin-bottom: 15px;
+  font-size: 14px;
+}
+
+.auth-switch {
+  margin-top: 15px;
+  text-align: center;
+  font-size: 14px;
+}
+
+.link-btn {
+  background: none;
+  border: none;
+  color: #007bff;
+  cursor: pointer;
+  font-size: 14px;
+  padding: 0;
+  margin-left: 5px;
+}
+
+.link-btn:hover {
+  text-decoration: underline;
+}
+
+.auth-user {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+/* 同步状态样式 */
+.sync-status {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-right: 10px;
+}
+
+.sync-label {
+  font-size: 14px;
+  color: #666;
+}
+
+.sync-indicator {
+  padding: 2px 8px;
+  border-radius: 10px;
+  font-size: 12px;
+  font-weight: 500;
+}
+
+.sync-indicator.syncing {
+  background-color: #ffc107;
+  color: #212529;
+}
+
+.sync-indicator.success {
+  background-color: #28a745;
+  color: white;
+}
+
+.sync-indicator.error {
+  background-color: #dc3545;
+  color: white;
+}
+
+.sync-indicator.idle {
+  background-color: #6c757d;
+  color: white;
+}
+
+.last-sync {
+  font-size: 12px;
+  color: #666;
+  margin-left: 10px;
 }
 
 .btn {
