@@ -1,6 +1,16 @@
 <template>
   <div class="app">
     <header class="header">
+      <div class="user-section">
+        <div class="current-user">
+          <select v-model="usersData.currentUser" @change="switchUser" class="user-select">
+            <option v-for="(user, id) in users" :key="id" :value="id">
+              {{ user.name }}
+            </option>
+          </select>
+          <button @click="showUserModal = true" class="btn btn-sm">管理用户</button>
+        </div>
+      </div>
       <h1>26版660习题集记录</h1>
       <div class="header-actions">
         <button @click="exportData('csv')" class="btn">导出CSV</button>
@@ -286,12 +296,57 @@
           <button @click="showClearDataModal = false" class="close-btn">×</button>
         </div>
         <div class="clear-data-content">
-          <p class="warning-text">⚠️ 警告：此操作将清除所有已保存的做题记录、照片和笔记，且无法恢复！</p>
-          <p>确定要清除所有数据吗？</p>
+          <p class="warning-text">⚠️ 警告：此操作将清除当前用户的所有做题记录、照片和笔记，且无法恢复！</p>
+          <p>确定要清除当前用户的所有数据吗？</p>
         </div>
         <div class="note-actions">
           <button @click="clearAllData" class="btn btn-danger">确定清除</button>
           <button @click="showClearDataModal = false" class="btn btn-secondary">取消</button>
+        </div>
+      </div>
+    </div>
+    
+    <!-- 用户管理模态框 -->
+    <div v-if="showUserModal" class="modal">
+      <div class="modal-content user-modal">
+        <div class="modal-header">
+          <h3>用户管理</h3>
+          <button @click="showUserModal = false" class="close-btn">×</button>
+        </div>
+        <div class="user-management">
+          <div class="add-user">
+            <input v-model="newUserName" placeholder="输入用户名" class="user-input">
+            <button @click="createUser" class="btn">添加用户</button>
+          </div>
+          <div class="user-list">
+            <div v-for="(user, id) in users" :key="id" class="user-item">
+              <div class="user-info">
+                <span class="user-name">{{ user.name }}</span>
+                <span class="user-status" v-if="id === currentUserId">当前用户</span>
+              </div>
+              <div class="user-actions">
+                <button @click="editUser(id)" class="btn btn-sm">编辑</button>
+                <button @click="deleteUser(id)" class="btn btn-sm btn-danger" :disabled="id === currentUserId || Object.keys(users).length <= 1">删除</button>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+    
+    <!-- 编辑用户模态框 -->
+    <div v-if="showEditUserModal" class="modal">
+      <div class="modal-content">
+        <div class="modal-header">
+          <h3>编辑用户</h3>
+          <button @click="showEditUserModal = false" class="close-btn">×</button>
+        </div>
+        <div class="edit-user-content">
+          <input v-model="editingUserName" placeholder="输入用户名" class="user-input">
+        </div>
+        <div class="note-actions">
+          <button @click="saveEditUser" class="btn">保存</button>
+          <button @click="showEditUserModal = false" class="btn btn-secondary">取消</button>
         </div>
       </div>
     </div>
@@ -317,13 +372,23 @@ export default {
       showPreviewModal: false,
       showNoteModal: false,
       showClearDataModal: false,
+      showUserModal: false,
+      showEditUserModal: false,
       currentQuestionNumber: null,
       previewImageData: null,
       currentNote: '',
       saveTimeout: null,
-      storageKey: '660Questions',
-      backupKey: '660QuestionsBackup',
-      dataVersion: '1.1'
+      storageKey: '660QuestionsUsers',
+      backupKey: '660QuestionsUsersBackup',
+      dataVersion: '1.2',
+      // 用户系统相关
+      usersData: {
+        currentUser: null,
+        users: {}
+      },
+      newUserName: '',
+      editingUserId: null,
+      editingUserName: ''
     }
   },
   computed: {
@@ -394,6 +459,19 @@ export default {
       
       const totalDifficulty = questionsWithDifficulty.reduce((sum, q) => sum + q.difficulty, 0)
       return totalDifficulty / questionsWithDifficulty.length
+    },
+    // 用户系统相关计算属性
+    currentUserName() {
+      if (this.usersData.currentUser && this.usersData.users[this.usersData.currentUser]) {
+        return this.usersData.users[this.usersData.currentUser].name
+      }
+      return '未登录'
+    },
+    users() {
+      return this.usersData.users
+    },
+    currentUserId() {
+      return this.usersData.currentUser
     }
   },
   mounted() {
@@ -402,114 +480,209 @@ export default {
   methods: {
     initializeData() {
       try {
-        // 从本地存储加载数据
+        // 从本地存储加载用户数据
         const savedData = localStorage.getItem(this.storageKey)
         if (savedData) {
           try {
             const parsedData = JSON.parse(savedData)
             // 数据版本迁移
             if (parsedData.version === this.dataVersion) {
-              this.questions = parsedData.questions
+              this.usersData = {
+                currentUser: parsedData.currentUser,
+                users: parsedData.users
+              }
             } else {
-              this.questions = this.migrateData(parsedData)
+              this.usersData = this.migrateUserData(parsedData)
             }
-            // 确保所有题目都有必要字段
-            this.ensureQuestionFields()
+            // 加载当前用户数据
+            this.loadUserData()
           } catch (parseError) {
-            console.error('解析数据失败，尝试从备份恢复:', parseError)
-            this.loadFromBackup()
+            console.error('解析用户数据失败，尝试从备份恢复:', parseError)
+            this.loadUsersFromBackup()
           }
         } else {
           // 尝试从备份加载
-          this.loadFromBackup()
+          this.loadUsersFromBackup()
         }
       } catch (error) {
-        console.error('加载数据失败:', error)
-        // 初始化默认数据
-        this.initializeDefaultData()
+        console.error('加载用户数据失败:', error)
+        // 检查是否存在旧数据
+        this.checkForOldData()
       }
     },
-    loadFromBackup() {
+    loadUsersFromBackup() {
       try {
         const backupData = localStorage.getItem(this.backupKey)
         if (backupData) {
           const parsedData = JSON.parse(backupData)
-          this.questions = parsedData.questions
-          this.ensureQuestionFields()
-          console.log('从备份恢复数据成功')
+          this.usersData = {
+            currentUser: parsedData.currentUser,
+            users: parsedData.users
+          }
+          this.loadUserData()
+          console.log('从备份恢复用户数据成功')
         } else {
-          this.initializeDefaultData()
+          this.createDefaultUser()
         }
       } catch (error) {
-        console.error('从备份恢复失败:', error)
-        this.initializeDefaultData()
+        console.error('从备份恢复用户数据失败:', error)
+        this.createDefaultUser()
       }
     },
-    initializeDefaultData() {
-      this.questions = Array.from({ length: 660 }, (_, index) => ({
+    createDefaultUser() {
+      // 创建默认用户
+      const defaultUserId = 'user_' + Date.now()
+      this.usersData = {
+        currentUser: defaultUserId,
+        users: {
+          [defaultUserId]: {
+            name: '默认用户',
+            createdAt: Date.now(),
+            data: {
+              version: this.dataVersion,
+              timestamp: Date.now(),
+              questions: this.initializeDefaultQuestions()
+            }
+          }
+        }
+      }
+      this.loadUserData()
+      this.saveUsersData()
+    },
+    initializeDefaultQuestions() {
+      return Array.from({ length: 660 }, (_, index) => ({
         number: index + 1,
         status: '',
         difficulty: 0,
         image: null,
         note: ''
       }))
-      this.saveData()
     },
-    ensureQuestionFields() {
-      this.questions.forEach(q => {
+    ensureQuestionFields(questions) {
+      questions.forEach(q => {
         if (q.note === undefined) q.note = ''
         if (q.image === undefined) q.image = null
         if (q.status === undefined) q.status = ''
         if (q.difficulty === undefined) q.difficulty = 0
       })
+      return questions
     },
-    migrateData(oldData) {
-      // 数据版本迁移逻辑
-      const newQuestions = Array.from({ length: 660 }, (_, index) => ({
-        number: index + 1,
-        status: '',
-        difficulty: 0,
-        image: null,
-        note: ''
-      }))
-      if (oldData.questions) {
-        oldData.questions.forEach(oldQ => {
-          const newQ = newQuestions.find(q => q.number === oldQ.number)
-          if (newQ) {
-            Object.assign(newQ, oldQ)
+    migrateUserData(oldData) {
+      // 用户数据版本迁移逻辑
+      const newUsersData = {
+        currentUser: oldData.currentUser,
+        users: {}
+      }
+      
+      // 迁移用户数据
+      if (oldData.users) {
+        Object.keys(oldData.users).forEach(userId => {
+          const user = oldData.users[userId]
+          newUsersData.users[userId] = {
+            name: user.name,
+            createdAt: user.createdAt || Date.now(),
+            data: {
+              version: this.dataVersion,
+              timestamp: Date.now(),
+              questions: this.ensureQuestionFields(user.data?.questions || this.initializeDefaultQuestions())
+            }
           }
         })
       }
-      return newQuestions
+      
+      // 如果没有用户，创建默认用户
+      if (Object.keys(newUsersData.users).length === 0) {
+        this.createDefaultUser()
+        return this.usersData
+      }
+      
+      return newUsersData
+    },
+    checkForOldData() {
+      // 检查是否存在旧数据（非用户系统）
+      const oldData = localStorage.getItem('660Questions')
+      if (oldData) {
+        try {
+          const parsedData = JSON.parse(oldData)
+          // 创建默认用户并迁移数据
+          const defaultUserId = 'user_' + Date.now()
+          this.usersData = {
+            currentUser: defaultUserId,
+            users: {
+              [defaultUserId]: {
+                name: '默认用户',
+                createdAt: Date.now(),
+                data: {
+                  version: this.dataVersion,
+                  timestamp: Date.now(),
+                  questions: this.ensureQuestionFields(parsedData.questions || this.initializeDefaultQuestions())
+                }
+              }
+            }
+          }
+          this.loadUserData()
+          this.saveUsersData()
+          // 删除旧数据
+          localStorage.removeItem('660Questions')
+          localStorage.removeItem('660QuestionsBackup')
+          console.log('旧数据迁移成功')
+        } catch (error) {
+          console.error('旧数据迁移失败:', error)
+          this.createDefaultUser()
+        }
+      } else {
+        this.createDefaultUser()
+      }
+    },
+    loadUserData() {
+      if (this.usersData.currentUser && this.usersData.users[this.usersData.currentUser]) {
+        const userData = this.usersData.users[this.usersData.currentUser]
+        if (userData && userData.data) {
+          this.questions = this.ensureQuestionFields(userData.data.questions || this.initializeDefaultQuestions())
+        }
+      }
     },
     saveData() {
       // 防抖处理，避免频繁写入
       clearTimeout(this.saveTimeout)
       this.saveTimeout = setTimeout(() => {
-        try {
-          const data = {
-            version: this.dataVersion,
-            timestamp: Date.now(),
-            questions: this.questions
-          }
-          // 先保存备份
-          localStorage.setItem(this.backupKey, JSON.stringify(data))
-          // 再保存主数据
-          localStorage.setItem(this.storageKey, JSON.stringify(data))
-          console.log('数据保存成功')
-        } catch (error) {
-          console.error('保存数据失败:', error)
-          // 尝试使用sessionStorage作为备选
-          try {
-            sessionStorage.setItem(this.storageKey, JSON.stringify(this.questions))
-            console.log('使用sessionStorage保存数据')
-          } catch (sessionError) {
-            console.error('sessionStorage也保存失败:', sessionError)
-            // 显示用户友好的错误提示
-            alert('数据保存失败，部分功能可能受限')
-          }
-        }
+        this.saveUserData()
       }, 300) // 300ms防抖
+    },
+    saveUserData() {
+      if (this.usersData.currentUser && this.usersData.users[this.usersData.currentUser]) {
+        // 更新当前用户的题目数据
+        const userData = this.usersData.users[this.usersData.currentUser]
+        userData.data.questions = this.questions
+        userData.data.timestamp = Date.now()
+        this.saveUsersData()
+      }
+    },
+    saveUsersData() {
+      try {
+        const data = {
+          version: this.dataVersion,
+          timestamp: Date.now(),
+          currentUser: this.usersData.currentUser,
+          users: this.usersData.users
+        }
+        // 先保存备份
+        localStorage.setItem(this.backupKey, JSON.stringify(data))
+        // 再保存主数据
+        localStorage.setItem(this.storageKey, JSON.stringify(data))
+        console.log('用户数据保存成功')
+      } catch (error) {
+        console.error('保存用户数据失败:', error)
+        // 尝试使用sessionStorage作为备选
+        try {
+          sessionStorage.setItem(this.storageKey, JSON.stringify(this.usersData))
+          console.log('使用sessionStorage保存用户数据')
+        } catch (sessionError) {
+          console.error('sessionStorage也保存失败:', sessionError)
+          // 显示用户友好的错误提示
+          alert('数据保存失败，部分功能可能受限')
+        }
+      }
     },
     setDifficulty(number, difficulty) {
       const question = this.questions.find(q => q.number === number)
@@ -633,15 +806,14 @@ export default {
       return md.render(text)
     },
     clearAllData() {
-      if (confirm('确定要清除所有数据吗？此操作无法恢复！')) {
+      if (confirm('确定要清除当前用户的所有数据吗？此操作无法恢复！')) {
         try {
-          // 清除本地存储数据
-          localStorage.removeItem(this.storageKey)
-          localStorage.removeItem(this.backupKey)
-          sessionStorage.removeItem(this.storageKey)
-          
-          // 初始化默认数据
-          this.initializeDefaultData()
+          // 清除当前用户的数据
+          if (this.usersData.currentUser && this.usersData.users[this.usersData.currentUser]) {
+            this.usersData.users[this.usersData.currentUser].data.questions = this.initializeDefaultQuestions()
+            this.questions = this.initializeDefaultQuestions()
+            this.saveUsersData()
+          }
           this.showClearDataModal = false
           
           console.log('数据清除成功')
@@ -650,6 +822,74 @@ export default {
           console.error('清除数据失败:', error)
           alert('清除数据失败，请重试')
         }
+      }
+    },
+    // 用户管理功能
+    createUser() {
+      if (this.newUserName.trim()) {
+        const userId = 'user_' + Date.now()
+        this.usersData.users[userId] = {
+          name: this.newUserName.trim(),
+          createdAt: Date.now(),
+          data: {
+            version: this.dataVersion,
+            timestamp: Date.now(),
+            questions: this.initializeDefaultQuestions()
+          }
+        }
+        this.usersData.currentUser = userId
+        this.loadUserData()
+        this.saveUsersData()
+        this.newUserName = ''
+        this.showUserModal = false
+        console.log('用户创建成功')
+      } else {
+        alert('请输入用户名')
+      }
+    },
+    switchUser(event) {
+      const userId = event.target.value
+      if (this.usersData.users[userId]) {
+        this.usersData.currentUser = userId
+        this.loadUserData()
+        this.saveUsersData()
+        console.log('用户切换成功')
+      }
+    },
+    deleteUser(userId) {
+      if (confirm('确定要删除此用户吗？此操作无法恢复！')) {
+        if (Object.keys(this.usersData.users).length > 1) {
+          delete this.usersData.users[userId]
+          // 如果删除的是当前用户，切换到第一个用户
+          if (this.usersData.currentUser === userId) {
+            const userIds = Object.keys(this.usersData.users)
+            if (userIds.length > 0) {
+              this.usersData.currentUser = userIds[0]
+              this.loadUserData()
+            }
+          }
+          this.saveUsersData()
+          console.log('用户删除成功')
+        } else {
+          alert('至少需要保留一个用户')
+        }
+      }
+    },
+    editUser(userId) {
+      this.editingUserId = userId
+      this.editingUserName = this.usersData.users[userId].name
+      this.showEditUserModal = true
+    },
+    saveEditUser() {
+      if (this.editingUserName.trim() && this.editingUserId) {
+        this.usersData.users[this.editingUserId].name = this.editingUserName.trim()
+        this.saveUsersData()
+        this.showEditUserModal = false
+        this.editingUserId = null
+        this.editingUserName = ''
+        console.log('用户编辑成功')
+      } else {
+        alert('请输入用户名')
       }
     }
   }
@@ -668,11 +908,100 @@ export default {
   justify-content: space-between;
   align-items: center;
   margin-bottom: 30px;
+  flex-wrap: wrap;
+  gap: 10px;
 }
 
 .header h1 {
   color: #333;
   font-size: 24px;
+}
+
+.user-section {
+  flex: 1;
+  min-width: 200px;
+}
+
+.current-user {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.user-select {
+  padding: 8px 12px;
+  border: 1px solid #ddd;
+  border-radius: 4px;
+  background-color: white;
+  font-size: 14px;
+  min-width: 120px;
+}
+
+.user-input {
+  padding: 8px 12px;
+  border: 1px solid #ddd;
+  border-radius: 4px;
+  font-size: 14px;
+  flex: 1;
+  min-width: 200px;
+}
+
+.user-modal {
+  max-width: 500px;
+}
+
+.user-management {
+  margin-bottom: 20px;
+}
+
+.add-user {
+  display: flex;
+  gap: 10px;
+  margin-bottom: 20px;
+  flex-wrap: wrap;
+}
+
+.user-list {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.user-item {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 12px;
+  background-color: #f8f9fa;
+  border-radius: 4px;
+}
+
+.user-info {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.user-name {
+  font-weight: 500;
+  color: #333;
+}
+
+.user-status {
+  padding: 2px 8px;
+  background-color: #4CAF50;
+  color: white;
+  border-radius: 10px;
+  font-size: 12px;
+}
+
+.user-actions {
+  display: flex;
+  gap: 5px;
+}
+
+.edit-user-content {
+  margin-bottom: 20px;
 }
 
 .btn {
