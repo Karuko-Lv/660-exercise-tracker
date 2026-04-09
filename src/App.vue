@@ -433,8 +433,10 @@
 <script>
 import MarkdownIt from 'markdown-it'
 import { currentUser, token, isAuthenticated, login, logout, loadUser } from './store/auth'
-import { uploadData, downloadData, register, login as apiLogin } from './services/sync'
-import { syncStatus, lastSyncTime, autoSync, manualSync } from './utils/syncManager'
+import { register, login as apiLogin } from './services/firebaseAuth'
+import { uploadData, downloadData } from './services/firebaseSync'
+import { syncStatus, lastSyncTime, autoSync, manualSync } from './utils/firebaseSyncManager'
+import { onAuthStateChanged } from './firebase'
 
 const md = new MarkdownIt({
   breaks: true,
@@ -585,14 +587,23 @@ export default {
     
   },
   mounted() {
-    // 加载认证状态
-    loadUser()
     // 初始化数据
     this.initializeData()
-    // 如果已认证，自动同步数据
-    if (isAuthenticated.value) {
-      this.syncData()
-    }
+    // 监听Firebase认证状态
+    onAuthStateChanged((user) => {
+      if (user) {
+        // 用户已登录
+        const userData = {
+          id: user.uid,
+          email: user.email
+        }
+        login(userData, null) // Firebase不需要token存储
+        this.syncData() // 自动同步数据
+      } else {
+        // 用户未登录
+        logout()
+      }
+    })
   },
   methods: {
     initializeData() {
@@ -1050,9 +1061,13 @@ export default {
         this.authLoading = false
       }
     },
-    handleLogout() {
-      logout()
-      console.log('登出成功')
+    async handleLogout() {
+      try {
+        await logout()
+        console.log('登出成功')
+      } catch (error) {
+        console.error('登出失败:', error)
+      }
     },
     // 同步相关方法
     async syncData() {
