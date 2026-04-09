@@ -101,23 +101,6 @@
           </div>
         </div>
         
-        <div class="analysis-card" v-if="isAuthenticated">
-          <h3>云端同步</h3>
-          <div class="sync-info">
-            <div class="stat-item">
-              <span class="stat-label">同步状态:</span>
-              <span class="stat-value" :class="'sync-' + syncStatus.value">{{ syncStatusText }}</span>
-            </div>
-            <div class="stat-item" v-if="lastSyncTime.value">
-              <span class="stat-label">上次同步:</span>
-              <span class="stat-value">{{ formatSyncTime(lastSyncTime.value) }}</span>
-            </div>
-            <button @click="syncData" class="btn btn-sm" :disabled="syncStatus.value === 'syncing'" style="margin-top: 10px;">
-              立即同步
-            </button>
-          </div>
-        </div>
-        
         <div class="analysis-card">
           <h3>云端同步</h3>
           <div class="sync-info" v-if="!isAuthenticated">
