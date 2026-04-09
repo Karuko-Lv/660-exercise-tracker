@@ -1,20 +1,15 @@
 import { ref, computed } from 'vue';
 
 const currentUser = ref(null);
-const token = ref(localStorage.getItem('token'));
-const isAuthenticated = computed(() => !!token.value);
+const isAuthenticated = computed(() => !!currentUser.value);
 
 function login(user, tokenValue) {
   currentUser.value = user;
-  token.value = tokenValue;
-  localStorage.setItem('token', tokenValue);
   localStorage.setItem('user', JSON.stringify(user));
 }
 
 function logout() {
   currentUser.value = null;
-  token.value = null;
-  localStorage.removeItem('token');
   localStorage.removeItem('user');
 }
 
@@ -25,4 +20,4 @@ function loadUser() {
   }
 }
 
-export { currentUser, token, isAuthenticated, login, logout, loadUser };
+export { currentUser, isAuthenticated, login, logout, loadUser };

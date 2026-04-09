@@ -432,7 +432,7 @@
 
 <script>
 import MarkdownIt from 'markdown-it'
-import { currentUser, token, isAuthenticated, login, logout, loadUser } from './store/auth'
+import { currentUser, isAuthenticated, login, logout, loadUser } from './store/auth'
 import { register, login as apiLogin } from './services/firebaseAuth'
 import { uploadData, downloadData } from './services/firebaseSync'
 import { syncStatus, lastSyncTime, autoSync, manualSync } from './utils/firebaseSyncManager'
