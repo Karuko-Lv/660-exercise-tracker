@@ -592,7 +592,7 @@ export default {
     },
     // 认证相关计算属性
     isAuthenticated() {
-      return isAuthenticated.value
+      return isAuthenticated
     },
     currentAuthUser() {
       return currentUser.value
