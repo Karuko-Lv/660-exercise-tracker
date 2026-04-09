@@ -118,6 +118,15 @@
           </div>
         </div>
         
+        <div class="analysis-card" v-if="!isAuthenticated">
+          <h3>云端同步</h3>
+          <div class="sync-info">
+            <p style="margin-bottom: 10px; color: #666;">登录后可同步数据到云端，在不同设备间访问</p>
+            <button @click="showAuthModal = true" class="btn" style="margin-right: 10px;">登录</button>
+            <button @click="showRegisterModal = true" class="btn">注册</button>
+          </div>
+        </div>
+        
         <div class="analysis-card analysis-suggestions">
           <h3>学习建议</h3>
           <div class="suggestions">
